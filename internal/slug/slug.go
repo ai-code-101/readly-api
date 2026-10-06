@@ -14,8 +14,8 @@ func Make(s string) string {
 	dash := false
 	for _, r := range norm.NFD.String(strings.ToLower(s)) {
 		switch {
-		case unicode.Is(unicode.Mn, r):
-			// drop combining accents
+		case unicode.Is(unicode.Mn, r), r == '\'', r == '’':
+			// drop combining accents and apostrophes ("Children's" -> "childrens")
 		case r < unicode.MaxASCII && (unicode.IsLetter(r) || unicode.IsDigit(r)):
 			b.WriteRune(r)
 			dash = false
