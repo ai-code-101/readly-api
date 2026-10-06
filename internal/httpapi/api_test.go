@@ -141,6 +141,9 @@ func TestBookLifecycle(t *testing.T) {
 	if res, _ = do(t, srv, "GET", "/api/v1/books/"+book.Slug, nil, "", false); res.StatusCode != 404 {
 		t.Fatalf("draft visible publicly: %d", res.StatusCode)
 	}
+	if _, b = do(t, srv, "GET", "/api/v1/admin/books?status=draft", nil, "", true); !strings.Contains(string(b), `"total":1`) {
+		t.Fatalf("admin draft filter: %s", b)
+	}
 	if res, _ = do(t, srv, "GET", "/api/v1/admin/books/"+book.ID+"/epub", nil, "", true); res.StatusCode != 200 {
 		t.Fatalf("admin epub preview: %d", res.StatusCode)
 	}

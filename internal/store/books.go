@@ -142,6 +142,7 @@ type BookFilter struct {
 	StaffPick     bool
 	Free          bool
 	IncludeDrafts bool
+	Status        string // optional exact status filter (admin only)
 	Page          int
 	PageSize      int
 }
@@ -164,6 +165,9 @@ func (s *Store) ListBooks(ctx context.Context, f BookFilter) ([]Book, int, error
 	}
 	if !f.IncludeDrafts {
 		where = append(where, "b.status = 'published'")
+	}
+	if f.Status == "draft" || f.Status == "published" {
+		where = append(where, "b.status = "+arg(f.Status))
 	}
 	if f.CategorySlug != "" {
 		where = append(where, "c.slug = "+arg(f.CategorySlug))

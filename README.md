@@ -69,7 +69,7 @@ All responses are JSON; asset URLs in responses are relative to the API origin.
 | PUT/DELETE | `/api/v1/admin/categories/{id}` | Update / delete |
 | PUT | `/api/v1/admin/categories/{id}/image` | Multipart `image` |
 | POST | `/api/v1/admin/epub/inspect` | Multipart `epub` → extracted title, author, language, description, page estimate, whether a cover exists |
-| GET | `/api/v1/admin/books` | All books including drafts (same filters as public) |
+| GET | `/api/v1/admin/books` | All books including drafts (same filters as public, plus `status=draft\|published`) |
 | POST | `/api/v1/admin/books` | Multipart: `epub` (required), `cover` (optional – falls back to the EPUB's own cover), `metadata` (JSON, see below – blank fields are filled from the EPUB) |
 | GET/PUT/DELETE | `/api/v1/admin/books/{id}` | Read / replace metadata (JSON) / delete with its files |
 | PUT | `/api/v1/admin/books/{id}/epub` | Replace the EPUB (multipart `epub`) |

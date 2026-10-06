@@ -122,6 +122,7 @@ func (s *Server) adminSetCategoryImage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) adminListBooks(w http.ResponseWriter, r *http.Request) {
 	f := parseBookFilter(r)
 	f.IncludeDrafts = true
+	f.Status = r.URL.Query().Get("status")
 	if f.Sort == "" {
 		f.Sort = "updated"
 	}
