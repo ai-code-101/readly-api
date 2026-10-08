@@ -25,6 +25,10 @@ const token = "test-admin-token"
 
 // newServer connects to TEST_DATABASE_URL, resets the schema and returns a test server.
 func newServer(t *testing.T) *httptest.Server {
+	return newServerWith(t, httpapi.Options{})
+}
+
+func newServerWith(t *testing.T, opt httpapi.Options) *httptest.Server {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -42,10 +46,8 @@ func newServer(t *testing.T) *httptest.Server {
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	api := httpapi.New(store.New(pool), httpapi.Options{
-		AdminToken: token, MaxEPUBBytes: 10 << 20, MaxImageBytes: 5 << 20,
-		Logger: nil,
-	})
+	opt.AdminToken, opt.MaxEPUBBytes, opt.MaxImageBytes = token, 10<<20, 5<<20
+	api := httpapi.New(store.New(pool), opt)
 	srv := httptest.NewServer(api.Routes())
 	t.Cleanup(srv.Close)
 	return srv

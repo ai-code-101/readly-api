@@ -30,7 +30,8 @@ type Book struct {
 	PageCount      int          `json:"pageCount"`
 	WordCount      int          `json:"wordCount"`
 	IsFree         bool         `json:"isFree"`
-	IsTrending     bool         `json:"isTrending"`
+	IsTrending     bool         `json:"isTrending"` // trending today (Africa/Nairobi)
+	TrendingOn     *string      `json:"trendingOn"` // YYYY-MM-DD the book is (or was last) set to trend
 	IsStaffPick    bool         `json:"isStaffPick"`
 	IsBookOfTheDay bool         `json:"isBookOfTheDay"`
 	Status         string       `json:"status"`
@@ -88,11 +89,15 @@ func (in *BookInput) Validate() string {
 	return ""
 }
 
+// nairobiToday is today's date in Kenya, used for the per-day "trending" flag.
+const nairobiToday = `(now() AT TIME ZONE 'Africa/Nairobi')::date`
+
 const bookSelect = `
 SELECT b.id, b.title, b.slug, b.author, b.synopsis, b.language, b.genre_tag,
        c.id, c.name, c.slug,
        b.rating::float8, b.page_count, b.word_count,
-       b.is_free, b.is_trending, b.is_staff_pick, b.is_book_of_the_day,
+       b.is_free, coalesce(b.trending_on = ` + nairobiToday + `, false), to_char(b.trending_on, 'YYYY-MM-DD'),
+       b.is_staff_pick, b.is_book_of_the_day,
        b.status, b.open_count,
        b.epub_file_id IS NOT NULL, coalesce(ef.size_bytes, 0),
        coalesce(left(cf.sha256, 12), ''),
@@ -108,7 +113,7 @@ func scanBook(row pgx.Row) (*Book, error) {
 	err := row.Scan(&b.ID, &b.Title, &b.Slug, &b.Author, &b.Synopsis, &b.Language, &b.GenreTag,
 		&catID, &catName, &catSlug,
 		&b.Rating, &b.PageCount, &b.WordCount,
-		&b.IsFree, &b.IsTrending, &b.IsStaffPick, &b.IsBookOfTheDay,
+		&b.IsFree, &b.IsTrending, &b.TrendingOn, &b.IsStaffPick, &b.IsBookOfTheDay,
 		&b.Status, &b.OpenCount,
 		&b.HasEPUB, &b.EPUBSize, &b.CoverVersion,
 		&b.PublishedAt, &b.CreatedAt, &b.UpdatedAt)
@@ -177,7 +182,7 @@ func (s *Store) ListBooks(ctx context.Context, f BookFilter) ([]Book, int, error
 		where = append(where, fmt.Sprintf("(b.title ILIKE %[1]s OR b.author ILIKE %[1]s OR b.genre_tag ILIKE %[1]s OR c.name ILIKE %[1]s)", p))
 	}
 	if f.Trending {
-		where = append(where, "b.is_trending")
+		where = append(where, "b.trending_on = "+nairobiToday)
 	}
 	if f.StaffPick {
 		where = append(where, "b.is_staff_pick")
@@ -285,9 +290,9 @@ func (s *Store) CreateBook(ctx context.Context, in BookInput, files BookFiles) (
 		}
 		return tx.QueryRow(ctx, `
 			INSERT INTO books (title, slug, author, synopsis, language, genre_tag, category_id, rating,
-			                   page_count, word_count, is_free, is_trending, is_staff_pick, is_book_of_the_day,
+			                   page_count, word_count, is_free, trending_on, is_staff_pick, is_book_of_the_day,
 			                   status, published_at, epub_file_id, cover_file_id, cover_thumb_file_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CASE WHEN $12::bool THEN `+nairobiToday+` END, $13, $14, $15,
 			        CASE WHEN $15 = 'published' THEN now() END, $16, $17, $18)
 			RETURNING id`,
 			in.Title, sl, in.Author, in.Synopsis, in.Language, in.GenreTag, in.CategoryID, in.Rating,
@@ -309,7 +314,9 @@ func (s *Store) UpdateBook(ctx context.Context, id string, in BookInput) (*Book,
 		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE books SET title = $2, author = $3, synopsis = $4, language = $5, genre_tag = $6,
-			       category_id = $7, rating = $8, page_count = $9, is_free = $10, is_trending = $11,
+			       category_id = $7, rating = $8, page_count = $9, is_free = $10,
+			       trending_on = CASE WHEN $11::bool THEN `+nairobiToday+`
+			                          WHEN trending_on > `+nairobiToday+` THEN trending_on END,
 			       is_staff_pick = $12, is_book_of_the_day = $13, status = $14,
 			       published_at = CASE WHEN $14 = 'published' THEN coalesce(published_at, now()) END,
 			       updated_at = now()
@@ -416,6 +423,27 @@ func (s *Store) BookFileID(ctx context.Context, slug, kind string, includeDrafts
 		return "", ErrNotFound
 	}
 	return *id, nil
+}
+
+// SetTrending marks a book as trending on the given day (YYYY-MM-DD), or clears it when day is nil.
+func (s *Store) SetTrending(ctx context.Context, id string, day *string) (*Book, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE books SET trending_on = $2::date, updated_at = now() WHERE id = $1`, id, day)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotFound
+	}
+	return s.GetBook(ctx, id)
+}
+
+// TrendingOn lists books set to trend on the given day (YYYY-MM-DD), including drafts.
+func (s *Store) TrendingOn(ctx context.Context, day string) ([]Book, error) {
+	rows, err := s.pool.Query(ctx, bookSelect+` WHERE b.trending_on = $1::date ORDER BY lower(b.title)`, day)
+	if err != nil {
+		return nil, err
+	}
+	return collectBooks(rows)
 }
 
 // RecordOpen bumps the popularity counter used by the "Most Popular" sort.

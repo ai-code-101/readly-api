@@ -34,6 +34,17 @@ Migrations in `internal/db/migrations` are embedded and applied automatically at
 | `ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:3001`                  | CORS allow-list |
 | `MAX_EPUB_MB`     | `100`                                                          | Upload limit for EPUBs |
 | `MAX_IMAGE_MB`    | `10`                                                           | Upload limit for covers / category images |
+| `SMS_MODE`        | `log`                                                          | `log` prints OTP codes to the console; `live` sends them by SMS |
+| `SMS_API_URL`     | Peak messaging `…/api/v1/message/100/user/send`                | SMS send endpoint |
+| `SMS_CHANNEL`     | `SENDERNAME`                                                   | Sent as `channel` |
+| `SMS_ORG_ID`      | — (required for live)                                          | Sent as `organization_id` |
+| `SMS_API_TOKEN`   | —                                                              | Optional `Authorization: Bearer` token |
+| `OTP_SECRET`      | random per process (required for live)                         | HMAC key for stored OTP codes |
+| `SUBSCRIPTION_HOURS` / `SUBSCRIPTION_PRICE_KES` | `24` / `10`                      | Daily airtime plan |
+| `COOKIE_SECURE`   | `false`                                                        | Set `true` behind HTTPS |
+
+If another Postgres already uses port 5432, start the Docker one on another port:
+`DB_PORT=5433 docker compose up -d db` and use `localhost:5433` in `DATABASE_URL`.
 
 ## Storage
 
@@ -60,11 +71,34 @@ All responses are JSON; asset URLs in responses are relative to the API origin.
 | GET | `/api/v1/books/{slug}/cover[?size=thumb]` | Cover image or thumbnail |
 | GET | `/api/v1/books/{slug}/epub` | The EPUB file (counts towards "Most Popular") |
 
+### Readers: phone OTP & subscriptions
+
+A reader subscribes with their phone number. Airtime billing isn't connected yet, so **a verified OTP
+currently grants a 24-hour subscription** (KES 10/day plan). Renewing early stacks the new day after the
+current one.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/plans` | The daily airtime plan |
+| POST | `/api/v1/auth/otp/request` | `{phone, purpose: "subscribe"\|"login"}` → sends a 6-digit code by SMS (valid 5 min; 60 s resend cooldown; 5 per hour per number) |
+| POST | `/api/v1/auth/otp/verify` | `{phone, code, purpose}` → signs in (sets the `readly_session` cookie); `subscribe` also grants the subscription |
+| GET | `/api/v1/me` | Signed-in reader and their active subscription |
+| POST | `/api/v1/auth/logout` | Ends the session |
+| GET | `/api/v1/me/progress` | Reading positions saved for this reader |
+| GET/PUT | `/api/v1/me/progress/{slug}` | One book's position (`{cfi, percent, chapter, updatedAt}`) |
+
+The SMS is sent as `POST $SMS_API_URL` with
+`{"channel","destination":"2547XXXXXXXX","content","organization_id","requestid"}`; any 2xx is success.
+Codes are stored only as HMACs and are never logged in live mode.
+
 ### Admin (`Authorization: Bearer $ADMIN_TOKEN`)
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/v1/admin/stats` | Totals for the dashboard |
+| GET | `/api/v1/admin/stats` | Totals for the dashboard, incl. active subscribers and subscriptions today |
+| GET | `/api/v1/admin/subscribers?date=YYYY-MM-DD` | Readers subscribed at any time that day (Nairobi time; default today) |
+| GET | `/api/v1/admin/trending?date=YYYY-MM-DD` | Books set to trend that day |
+| PUT | `/api/v1/admin/books/{id}/trending` | `{}` = trending today, `{"date":"YYYY-MM-DD"}` = that day, `{"off":true}` = remove |
 | GET/POST | `/api/v1/admin/categories` | List / create (`{name, description, sortOrder}`) |
 | PUT/DELETE | `/api/v1/admin/categories/{id}` | Update / delete |
 | PUT | `/api/v1/admin/categories/{id}/image` | Multipart `image` |
@@ -84,6 +118,7 @@ Book metadata:
   "language": "en", "genreTag": "Literary Fiction", "categoryId": "<uuid>|null",
   "rating": 4.9, "pageCount": 312,
   "isFree": false, "isTrending": true, "isStaffPick": false, "isBookOfTheDay": false,
+  // isTrending = trending *today*; it drops off automatically the next day
   "status": "draft|published"
 }
 ```
@@ -100,7 +135,8 @@ throwaway database.
 
 ## Not yet implemented (planned)
 
-- User sign-up / login (email OTP + Google) and admin accounts (replacing `ADMIN_TOKEN`)
-- Free plan: 5 free books, then the paywall (hook point: `bookEPUB` in `internal/httpapi/public.go`)
-- M-Pesa (Safaricom STK push) subscriptions
+- Real airtime billing for subscriptions (today a verified OTP grants the day)
+- Server-side enforcement of the paywall on EPUB downloads (hook point: `bookEPUB` in
+  `internal/httpapi/public.go`); the 5 free books are currently tracked in the reader's browser
+- Admin accounts (replacing `ADMIN_TOKEN`)
 - Moving file storage from Postgres to object storage for production

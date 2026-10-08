@@ -1,6 +1,8 @@
 # Local development stack: Postgres + the API.
 #   docker compose up --build
 #   docker compose run --rm seed     # create the starter categories
+# If port 5432 is taken by another Postgres: DB_PORT=5433 docker compose up -d db
+# (and use localhost:5433 in DATABASE_URL).
 services:
   db:
     image: postgres:16-alpine
@@ -8,7 +10,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: readly
-    ports: ["5432:5432"]
+    ports: ["${DB_PORT:-5432}:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d readly"]
@@ -20,7 +22,13 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:postgres@db:5432/readly?sslmode=disable
       ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
-      ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001
+      ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002
+      SMS_MODE: ${SMS_MODE:-log}
+      SMS_API_URL: ${SMS_API_URL:-}
+      SMS_CHANNEL: ${SMS_CHANNEL:-SENDERNAME}
+      SMS_ORG_ID: ${SMS_ORG_ID:-}
+      SMS_API_TOKEN: ${SMS_API_TOKEN:-}
+      OTP_SECRET: ${OTP_SECRET:-}
     ports: ["8080:8080"]
     depends_on:
       db: { condition: service_healthy }

@@ -23,7 +23,15 @@ func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, st)
+	sub, err := s.store.SubscriptionStats(r.Context())
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		*store.Stats
+		*store.SubscriptionStats
+	}{st, sub})
 }
 
 // ---- categories -------------------------------------------------------------

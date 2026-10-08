@@ -15,6 +15,20 @@ type Config struct {
 	AllowedOrigins []string
 	MaxEPUBBytes   int64
 	MaxImageBytes  int64
+
+	// SMS delivery of OTP codes. With SMSMode "log" codes are only written to the log.
+	SMSMode    string
+	SMSURL     string
+	SMSChannel string
+	SMSOrgID   string
+	SMSToken   string
+	// OTPSecret keys the HMAC of stored codes.
+	OTPSecret []byte
+
+	SubscriptionHours    int
+	SubscriptionPriceKES int
+	// CookieSecure marks the session cookie Secure (set true behind HTTPS).
+	CookieSecure bool
 }
 
 func Load() (Config, error) {
@@ -28,6 +42,29 @@ func Load() (Config, error) {
 	}
 	if cfg.AdminToken == "" {
 		return cfg, fmt.Errorf("ADMIN_TOKEN must be set")
+	}
+
+	cfg.SMSMode = env("SMS_MODE", "log")
+	cfg.SMSURL = env("SMS_API_URL", "https://messaging-peak-1048592730476.europe-west4.run.app/api/v1/message/100/user/send")
+	cfg.SMSChannel = env("SMS_CHANNEL", "SENDERNAME")
+	cfg.SMSOrgID = os.Getenv("SMS_ORG_ID")
+	cfg.SMSToken = os.Getenv("SMS_API_TOKEN")
+	cfg.SubscriptionHours = int(envInt("SUBSCRIPTION_HOURS", 24))
+	cfg.SubscriptionPriceKES = int(envInt("SUBSCRIPTION_PRICE_KES", 10))
+	cfg.CookieSecure = os.Getenv("COOKIE_SECURE") == "true"
+	switch cfg.SMSMode {
+	case "log":
+	case "live":
+		if cfg.SMSOrgID == "" {
+			return cfg, fmt.Errorf("SMS_ORG_ID must be set when SMS_MODE=live")
+		}
+	default:
+		return cfg, fmt.Errorf(`SMS_MODE must be "log" or "live"`)
+	}
+	if secret := os.Getenv("OTP_SECRET"); secret != "" {
+		cfg.OTPSecret = []byte(secret)
+	} else if cfg.SMSMode == "live" {
+		return cfg, fmt.Errorf("OTP_SECRET must be set when SMS_MODE=live")
 	}
 	return cfg, nil
 }

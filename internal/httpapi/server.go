@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/ai-code-101/readly-api/internal/sms"
 	"github.com/ai-code-101/readly-api/internal/store"
 )
 
@@ -24,6 +26,12 @@ type Server struct {
 	maxEPUBBytes   int64
 	maxImageBytes  int64
 	log            *slog.Logger
+
+	sms          sms.Sender
+	otpSecret    []byte
+	subHours     int
+	subPriceKES  int
+	cookieSecure bool
 }
 
 type Options struct {
@@ -32,6 +40,12 @@ type Options struct {
 	MaxEPUBBytes   int64
 	MaxImageBytes  int64
 	Logger         *slog.Logger
+
+	SMS                  sms.Sender // defaults to logging codes instead of sending them
+	OTPSecret            []byte     // defaults to a random per-process secret
+	SubscriptionHours    int
+	SubscriptionPriceKES int
+	CookieSecure         bool
 }
 
 func New(st *store.Store, opt Options) *Server {
@@ -42,7 +56,25 @@ func New(st *store.Store, opt Options) *Server {
 	if opt.Logger == nil {
 		opt.Logger = slog.Default()
 	}
+	if opt.SMS == nil {
+		opt.SMS = sms.LogSender{Log: opt.Logger}
+	}
+	if len(opt.OTPSecret) == 0 {
+		opt.OTPSecret = make([]byte, 32)
+		_, _ = rand.Read(opt.OTPSecret)
+	}
+	if opt.SubscriptionHours <= 0 {
+		opt.SubscriptionHours = 24
+	}
+	if opt.SubscriptionPriceKES <= 0 {
+		opt.SubscriptionPriceKES = 10
+	}
 	return &Server{
+		sms:            opt.SMS,
+		otpSecret:      opt.OTPSecret,
+		subHours:       opt.SubscriptionHours,
+		subPriceKES:    opt.SubscriptionPriceKES,
+		cookieSecure:   opt.CookieSecure,
 		store:          st,
 		adminToken:     opt.AdminToken,
 		allowedOrigins: origins,
@@ -72,9 +104,24 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/books/{slug}/cover", s.bookCover)
 		r.Get("/books/{slug}/epub", s.bookEPUB)
 
+		r.Get("/plans", s.plans)
+		r.Post("/auth/otp/request", s.requestOTP)
+		r.Post("/auth/otp/verify", s.verifyOTP)
+		r.Post("/auth/logout", s.logout)
+		r.Group(func(r chi.Router) {
+			r.Use(s.requireUser)
+			r.Get("/me", s.me)
+			r.Get("/me/progress", s.listProgress)
+			r.Get("/me/progress/{slug}", s.getProgress)
+			r.Put("/me/progress/{slug}", s.putProgress)
+		})
+
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(s.requireAdmin)
 			r.Get("/stats", s.adminStats)
+			r.Get("/subscribers", s.adminSubscribers)
+			r.Get("/trending", s.adminTrending)
+			r.Put("/books/{id}/trending", s.adminSetTrending)
 
 			r.Get("/categories", s.listCategories)
 			r.Post("/categories", s.adminCreateCategory)
@@ -118,6 +165,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			h.Add("Vary", "Origin")
 			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			h.Set("Access-Control-Allow-Credentials", "true")
 			h.Set("Access-Control-Expose-Headers", "Content-Length, ETag")
 			h.Set("Access-Control-Max-Age", "600")
 		}
