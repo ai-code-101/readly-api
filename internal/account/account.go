@@ -1,15 +1,12 @@
-// Package otp holds the phone-number and one-time-code helpers.
-package otp
+// Package account holds the phone-number and session-token helpers.
+package account
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"fmt"
-	"math/big"
 	"strings"
 )
 
@@ -39,25 +36,6 @@ func NormalizePhone(raw string) (string, error) {
 	}
 	return "254" + s, nil
 }
-
-// NewCode returns a cryptographically random 6-digit code.
-func NewCode() (string, error) {
-	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%06d", n.Int64()), nil
-}
-
-// HashCode is an HMAC so a leaked table can't be brute-forced without the secret.
-func HashCode(secret []byte, phone, purpose, code string) string {
-	m := hmac.New(sha256.New, secret)
-	m.Write([]byte(phone + "|" + purpose + "|" + code))
-	return hex.EncodeToString(m.Sum(nil))
-}
-
-// Equal compares two hashes in constant time.
-func Equal(a, b string) bool { return hmac.Equal([]byte(a), []byte(b)) }
 
 // NewSessionToken returns a random session token and the hash to store for it.
 func NewSessionToken() (token, hash string, err error) {

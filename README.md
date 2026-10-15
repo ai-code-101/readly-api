@@ -34,12 +34,6 @@ Migrations in `internal/db/migrations` are embedded and applied automatically at
 | `ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:3001`                  | CORS allow-list |
 | `MAX_EPUB_MB`     | `100`                                                          | Upload limit for EPUBs |
 | `MAX_IMAGE_MB`    | `10`                                                           | Upload limit for covers / category images |
-| `SMS_MODE`        | `log`                                                          | `log` prints OTP codes to the console; `live` sends them by SMS |
-| `SMS_API_URL`     | Peak messaging `…/api/v1/message/100/user/send`                | SMS send endpoint |
-| `SMS_CHANNEL`     | `SENDERNAME`                                                   | Sent as `channel` |
-| `SMS_ORG_ID`      | — (required for live)                                          | Sent as `organization_id` |
-| `SMS_API_TOKEN`   | —                                                              | Optional `Authorization: Bearer` token |
-| `OTP_SECRET`      | random per process (required for live)                         | HMAC key for stored OTP codes |
 | `SUBSCRIPTION_HOURS` / `SUBSCRIPTION_PRICE_KES` | `24` / `10`                      | Daily airtime plan |
 | `COOKIE_SECURE`   | `false`                                                        | Set `true` behind HTTPS |
 
@@ -71,25 +65,21 @@ All responses are JSON; asset URLs in responses are relative to the API origin.
 | GET | `/api/v1/books/{slug}/cover[?size=thumb]` | Cover image or thumbnail |
 | GET | `/api/v1/books/{slug}/epub` | The EPUB file (counts towards "Most Popular") |
 
-### Readers: phone OTP & subscriptions
+### Readers & subscriptions
 
-A reader subscribes with their phone number. Airtime billing isn't connected yet, so **a verified OTP
-currently grants a 24-hour subscription** (KES 10/day plan). Renewing early stacks the new day after the
-current one.
+Readers are identified by their phone number. Subscriptions will come from Safaricom (DSDP consent
+gateway + subscription notifications, with header enrichment for the number); that integration is
+not built yet, so there is currently no endpoint that signs a reader in. Users, sessions
+(`readly_session` cookie), subscriptions (KES 10/day, stacked when renewed early) and synced reading
+progress are already in place for it.
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/v1/plans` | The daily airtime plan |
-| POST | `/api/v1/auth/otp/request` | `{phone, purpose: "subscribe"\|"login"}` → sends a 6-digit code by SMS (valid 5 min; 60 s resend cooldown; 5 per hour per number) |
-| POST | `/api/v1/auth/otp/verify` | `{phone, code, purpose}` → signs in (sets the `readly_session` cookie); `subscribe` also grants the subscription |
 | GET | `/api/v1/me` | Signed-in reader and their active subscription |
 | POST | `/api/v1/auth/logout` | Ends the session |
 | GET | `/api/v1/me/progress` | Reading positions saved for this reader |
 | GET/PUT | `/api/v1/me/progress/{slug}` | One book's position (`{cfi, percent, chapter, updatedAt}`) |
-
-The SMS is sent as `POST $SMS_API_URL` with
-`{"channel","destination":"2547XXXXXXXX","content","organization_id","requestid"}`; any 2xx is success.
-Codes are stored only as HMACs and are never logged in live mode.
 
 ### Admin (`Authorization: Bearer $ADMIN_TOKEN`)
 
@@ -135,7 +125,7 @@ throwaway database.
 
 ## Not yet implemented (planned)
 
-- Real airtime billing for subscriptions (today a verified OTP grants the day)
+- Safaricom DSDP subscriptions (consent gateway redirect, notification callback, header enrichment)
 - Server-side enforcement of the paywall on EPUB downloads (hook point: `bookEPUB` in
   `internal/httpapi/public.go`); the 5 free books are currently tracked in the reader's browser
 - Admin accounts (replacing `ADMIN_TOKEN`)

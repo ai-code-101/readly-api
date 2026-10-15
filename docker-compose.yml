@@ -23,12 +23,6 @@ services:
       DATABASE_URL: postgres://postgres:postgres@db:5432/readly?sslmode=disable
       ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
       ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002
-      SMS_MODE: ${SMS_MODE:-log}
-      SMS_API_URL: ${SMS_API_URL:-}
-      SMS_CHANNEL: ${SMS_CHANNEL:-SENDERNAME}
-      SMS_ORG_ID: ${SMS_ORG_ID:-}
-      SMS_API_TOKEN: ${SMS_API_TOKEN:-}
-      OTP_SECRET: ${OTP_SECRET:-}
     ports: ["8080:8080"]
     depends_on:
       db: { condition: service_healthy }

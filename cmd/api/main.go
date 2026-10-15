@@ -14,7 +14,6 @@ import (
 	"github.com/ai-code-101/readly-api/internal/config"
 	"github.com/ai-code-101/readly-api/internal/db"
 	"github.com/ai-code-101/readly-api/internal/httpapi"
-	"github.com/ai-code-101/readly-api/internal/sms"
 	"github.com/ai-code-101/readly-api/internal/store"
 )
 
@@ -43,21 +42,12 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	var sender sms.Sender = sms.LogSender{Log: log}
-	if cfg.SMSMode == "live" {
-		sender = &sms.Client{URL: cfg.SMSURL, Channel: cfg.SMSChannel, OrganizationID: cfg.SMSOrgID, Token: cfg.SMSToken}
-	} else {
-		log.Warn("SMS_MODE=log: OTP codes are printed here instead of being sent by SMS")
-	}
-
 	api := httpapi.New(store.New(pool), httpapi.Options{
 		AdminToken:           cfg.AdminToken,
 		AllowedOrigins:       cfg.AllowedOrigins,
 		MaxEPUBBytes:         cfg.MaxEPUBBytes,
 		MaxImageBytes:        cfg.MaxImageBytes,
 		Logger:               log,
-		SMS:                  sender,
-		OTPSecret:            cfg.OTPSecret,
 		SubscriptionHours:    cfg.SubscriptionHours,
 		SubscriptionPriceKES: cfg.SubscriptionPriceKES,
 		CookieSecure:         cfg.CookieSecure,

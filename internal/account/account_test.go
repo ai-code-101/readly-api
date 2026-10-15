@@ -1,4 +1,4 @@
-package otp
+package account
 
 import "testing"
 
@@ -23,18 +23,7 @@ func TestNormalizePhone(t *testing.T) {
 	}
 }
 
-func TestCodeAndHash(t *testing.T) {
-	c, err := NewCode()
-	if err != nil || len(c) != 6 {
-		t.Fatalf("code %q err %v", c, err)
-	}
-	h := HashCode([]byte("s"), "254700000000", "login", c)
-	if !Equal(h, HashCode([]byte("s"), "254700000000", "login", c)) {
-		t.Fatal("hash not stable")
-	}
-	if Equal(h, HashCode([]byte("s"), "254700000000", "subscribe", c)) {
-		t.Fatal("purpose must change the hash")
-	}
+func TestMask(t *testing.T) {
 	if Mask("254743410697") != "2547•••••697" {
 		t.Fatalf("mask = %q", Mask("254743410697"))
 	}

@@ -2,42 +2,20 @@ package httpapi_test
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
-	"sync"
 	"testing"
+	"time"
 
+	"github.com/ai-code-101/readly-api/internal/account"
 	"github.com/ai-code-101/readly-api/internal/epub"
 	"github.com/ai-code-101/readly-api/internal/httpapi"
 )
-
-// fakeSMS records messages instead of sending them.
-type fakeSMS struct {
-	mu   sync.Mutex
-	msgs map[string]string
-}
-
-func (f *fakeSMS) Send(_ context.Context, phone, content, _ string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.msgs[phone] = content
-	return "1", nil
-}
-
-func (f *fakeSMS) code(t *testing.T, phone string) string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	m := regexp.MustCompile(`\b(\d{6})\b`).FindStringSubmatch(f.msgs[phone])
-	if m == nil {
-		t.Fatalf("no code sent to %s (messages: %v)", phone, f.msgs)
-	}
-	return m[1]
-}
 
 // client keeps cookies, like a browser.
 func client(t *testing.T) *http.Client {
@@ -67,47 +45,35 @@ func call(t *testing.T, c *http.Client, srv *httptest.Server, method, path, body
 	return res.StatusCode, string(b)
 }
 
-func TestSubscribeWithOTP(t *testing.T) {
-	smsFake := &fakeSMS{msgs: map[string]string{}}
-	srv := newServerWith(t, httpapi.Options{SMS: smsFake})
+func TestSubscriberSession(t *testing.T) {
+	srv, st := newServerStore(t, httpapi.Options{})
 	c := client(t)
+	ctx := context.Background()
 
 	// Not signed in yet.
 	if code, _ := call(t, c, srv, "GET", "/api/v1/me", ""); code != 401 {
 		t.Fatalf("/me before login: %d", code)
 	}
-	// Invalid numbers are rejected.
-	if code, _ := call(t, c, srv, "POST", "/api/v1/auth/otp/request", `{"phone":"12345"}`); code != 400 {
-		t.Fatalf("bad phone: %d", code)
+	// A subscriber and a session, as the Safaricom subscription flow will create them.
+	user, err := st.UpsertUser(ctx, "254743410697")
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Request a code; 0743… is normalised to 254743….
-	code, body := call(t, c, srv, "POST", "/api/v1/auth/otp/request", `{"phone":"0743 410 697","purpose":"subscribe"}`)
-	if code != 200 || !strings.Contains(body, `"phone":"254743410697"`) {
-		t.Fatalf("request otp: %d %s", code, body)
+	if _, err := st.AddSubscription(ctx, user.ID, "daily_airtime", 10, "test", 24*time.Hour); err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(body, smsFake.code(t, "254743410697")) {
-		t.Fatal("the code must never be returned by the API")
+	sessionToken, hash, err := account.NewSessionToken()
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Resend cooldown.
-	if code, _ := call(t, c, srv, "POST", "/api/v1/auth/otp/request", `{"phone":"254743410697"}`); code != 429 {
-		t.Fatalf("cooldown: %d", code)
+	if err := st.CreateSession(ctx, user.ID, hash, time.Hour); err != nil {
+		t.Fatal(err)
 	}
-	// A wrong code fails without signing in.
-	if code, _ := call(t, c, srv, "POST", "/api/v1/auth/otp/verify", `{"phone":"0743410697","code":"000000"}`); code != 400 {
-		t.Fatalf("wrong code: %d", code)
-	}
-	// The right code subscribes and signs in.
-	otpCode := smsFake.code(t, "254743410697")
-	code, body = call(t, c, srv, "POST", "/api/v1/auth/otp/verify", fmt.Sprintf(`{"phone":"0743410697","code":%q}`, otpCode))
-	if code != 200 || !strings.Contains(body, `"subscribed":true`) || !strings.Contains(body, `"amountKes":10`) {
-		t.Fatalf("verify: %d %s", code, body)
-	}
-	// The code is single-use.
-	if code, _ := call(t, c, srv, "POST", "/api/v1/auth/otp/verify", fmt.Sprintf(`{"phone":"0743410697","code":%q}`, otpCode)); code != 400 {
-		t.Fatalf("reused code: %d", code)
-	}
+	u, _ := url.Parse(srv.URL)
+	c.Jar.SetCookies(u, []*http.Cookie{{Name: "readly_session", Value: sessionToken, Path: "/"}})
+
 	// The session cookie now identifies the reader.
-	code, body = call(t, c, srv, "GET", "/api/v1/me", "")
+	code, body := call(t, c, srv, "GET", "/api/v1/me", "")
 	if code != 200 || !strings.Contains(body, `"phone":"254743410697"`) || !strings.Contains(body, `"subscribed":true`) {
 		t.Fatalf("/me: %d %s", code, body)
 	}

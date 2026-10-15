@@ -30,6 +30,13 @@ func newServer(t *testing.T) *httptest.Server {
 
 func newServerWith(t *testing.T, opt httpapi.Options) *httptest.Server {
 	t.Helper()
+	srv, _ := newServerStore(t, opt)
+	return srv
+}
+
+// newServerStore also returns the store, for setting up state the API can't create.
+func newServerStore(t *testing.T, opt httpapi.Options) (*httptest.Server, *store.Store) {
+	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL not set; skipping integration test")
@@ -47,10 +54,10 @@ func newServerWith(t *testing.T, opt httpapi.Options) *httptest.Server {
 		t.Fatal(err)
 	}
 	opt.AdminToken, opt.MaxEPUBBytes, opt.MaxImageBytes = token, 10<<20, 5<<20
-	api := httpapi.New(store.New(pool), opt)
-	srv := httptest.NewServer(api.Routes())
+	st := store.New(pool)
+	srv := httptest.NewServer(httpapi.New(st, opt).Routes())
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, st
 }
 
 func do(t *testing.T, srv *httptest.Server, method, path string, body io.Reader, contentType string, admin bool) (*http.Response, []byte) {
