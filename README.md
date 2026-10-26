@@ -6,6 +6,11 @@ and category images in **PostgreSQL** and serves them to:
 - [`readly`](https://github.com/ai-code-101/readly) – the reader web app (Next.js)
 - [`readly-admin`](https://github.com/ai-code-101/readly-admin) – the admin app for uploading books (Next.js)
 
+## Deploying
+
+See [docs/deploy-gcp.md](docs/deploy-gcp.md) for Google Cloud (Cloud Run + Cloud SQL), including copying
+an existing local database.
+
 ## Quick start
 
 ```bash
